@@ -1,0 +1,244 @@
+Referring to the wireframe of our application, we can have our Reducer’s designed and combined in one single file:
+
+// Root Reducer
+const rootReducer = combineReducer({
+header: headerReducer,
+login: loginReducer,
+footer: footerReducer,
+common: commonReducer,
+product: productReducer,
+catalog: catalogReducer,
+payment: paymentReducer
+});
+
+Now you got my point?
+
+Combining all the reducers to form a single source of truth i.e our Root Reducer will make it easier for the store to know everything about the application.
+
+Let’s now design our Reducers. To make things more easier for you, I would like to mention one interesting bit which will help us design them in a more convenient way:
+
+Reducer will be just a replica of what we designed earlier in our state tree.
+
+So, let’s have a look at how our headerReducer from Image will look like:
+
+// Header Reducer
+const headerReducer = combineReducer({
+menu: menuReducer,
+search: searchReducer,
+location: locationReducer
+});
+
+
+Step#3 : Implement Actions
+Now that we have learned how to design our reducers the correct way, let’s now learn how to implement Actions which will make sure we make correct calls to our API:
+
+Each and every typical action that serves API calls in an app would go through three defined stages:
+
+Loading state -> FETCH_SEARCH_DATA
+Success -> FETCH_SEARCH_SUCCESS
+Failure -> FETCH_SEARCH_FAILURE
+
+
+Here’s a typical example of these actions that calls the search API of our eCommerce app:
+
+export function fetchSearchData(args) {
+return async (dispatch) => {
+// Initiate loading state
+dispatch({
+type: FETCH_SEARCH_DATA
+});
+try {
+// Call the API
+const result = await fetchSearchData(args.pageCount, args.itemsPerPage);
+
+// Update payload in reducer on success
+dispatch({
+type: FETCH_SEARCH_SUCCESS,
+payload: result,
+currentPage: args.pageCount
+});
+} catch (err) {
+// Update error in reducer on failure
+dispatch({
+type: FETCH_SEARCH_FAILURE,
+error: err
+});
+}
+};
+}
+
+
+Step #4 : Integrating React with Redux store using React-Redux
+
+Since, we would ideally want our entire eCommerce app to access the Redux store, it’ll be a great idea to put our App component within Provider class.
+
+// src/index.js // //
+…
+import React from 'react';
+import ReactDOM from 'react-dom';
+import { Provider } from 'react-redux';
+
+const App = <h1>React-Redux eCommerce app</h1>;
+
+ReactDOM.render(
+<Provider store={store}>
+{ App }
+</Provider> ,
+document.getElementById(‘root’)
+);
+
+Now that we’ve completed the initial part of the React-Redux integration i.e using the Provider class, now is the time for us to connect React components with the Redux store we created earlier.
+
+Using Connect component to link React components with Redux store
+We established previously that there is no way to directly interact with the store. We can either retrieve data by obtaining its current state, or change its state by dispatching an action (we only have access to the top and bottom component of the Redux flow diagram shown previously).
+
+This is precisely what connect component does.
+
+Consider this piece of code, which uses connect to map the stores state and dispatch to the props of a component named SearchData to fetch search data:
+
+import React, { Component } from 'react';
+import { connect } from 'react-redux'
+import fetchSearchData from './action/fetchSearchData';
+import SearchData from './SearchData';
+const Search = (props) => (
+<SearchData
+search={props.search}
+fetchSearchData={props.fetchSearchData}
+/>
+);
+const mapStateToProps = (state) => ({
+search: state.header.search.payload
+});
+const mapDispatchToProps = {
+fetchSearchData
+};
+export default connect(mapStateToProps, mapDispatchToProps)(Search)
+
+In the above code snippets, mapStateToProps and mapDispatchToProps are both pure functions that are provided the stores “state” and “dispatch” respectively.
+
+The connected component (which is exported) provides fetchSearchData as props to Search component.
+
+It’s important to note that only components within the Provider can be connected.
+
+The following image will give you a definite explanation of the working of connect component.
+
+Using Serverless in our Ecommerce App
+#1. Cart Management
+
+The Cart Management business functionality will make use of 5 functions:
+
+ADD (Function 1): This will be triggered when a user adds a product into their cart.
+function getProductData(profile_id,cb){
+var params = {
+TableName : TABLES.productData,
+KeyConditionExpression: "#id = :profile_id",
+ExpressionAttributeNames:{
+"#id": "profile_id"
+},
+ExpressionAttributeValues: {
+":profile_id": profile_id
+}
+};
+docClient.query(params,function(err,data){
+if(err){
+console.log('err in getProduct');
+cb(err,null)
+} else {
+cb(null,data.Items);
+}
+});
+}
+
+DELETE (Function 2): This will be triggered when a user deletes a product from their cart.
+function deleteProduct(id,product_id,cb){
+var params = {
+TableName: TABLES['productCatalog'],
+Key:{
+id,
+product_id
+}
+};
+docClient.delete(params,function(err,data){
+if (err) {
+console.error("Unable to delete item. Error JSON:", JSON.stringify(err, null, 2));
+cb(err);
+} else {
+console.log("DeleteItem succeeded:", JSON.stringify(data, null, 2));
+cb(null);
+}
+});
+}
+
+QUANTITY(Function 3): Whenever number of product quantities will be updated, this function will be triggered.
+UPDATE (Function 4): This function will be running at a set interval of time to make sure that the products added in the cart are available in the warehouse. If not, it will automatically delete them.
+CHECK OUT (Function 5): Once the order is confirmed, this function will be triggered which will initiate the payment procedure.
+#2. Payment Management
+
+For facilitating the payment system, we will use Stripe Relay and Stripe Checkout. The function level granular architecture of serverless payment system will look something like this:
+
+Once the user creates an order, the app will provide order details to Stripe.
+After confirming the product availability in the Inventory (DynamoDB), Stripe confirms the order and returns with the order total to the user.
+Once the order is confirmed, an AWS Lambda function will be triggered which will load Stripe Checkout over a secured HTTPS url.
+Once the user provides the payment details, Stripe indicate the payment result to the user.
+Accepting the card payment with Stripe is a two-step process which works on client-side and server-side both:
+
+From the user’s browser, Stripe securely collects the user’s payment details and returns a representative token which is then submitted by the browser to the app’s server.
+Once the request is submitted, an API request is sent which triggers a Lambda function which will create a charge and complete the payment.
+Step 1: You can securely collect the payment information with Checkout. It combines with the HTML, JavaScript and CSS to create an embedded form as shown below. To get started, add the following code to your secure payment page and makes sure that your code submits to your own server-side code:
+
+<form action="your-server-side-code" method="POST">
+<script
+src="https://checkout.stripe.com/checkout.js" class="stripe-button"
+data-key="pk_test_6pRNASCoBOKtIshFeQd4XMUh"
+data-amount="999"
+data-name="Stripe.com"
+data-description="Example charge"
+data-image="https://stripe.com/img/documentation/checkout/marketplace.png"
+data-locale="auto"
+data-zip-code="true">
+</script>
+</form>
+
+Step 2: Once a token is create, your server-side code will trigger a Lambda function through API Gateway to create one time charge. This request contains the token, currency, amount to charge and any additional information you want to pass.
+
+Our Lambda function will look something like this. It is written in Node.js
+
+// Set your secret key: remember to change this to your live secret key in production
+// See your keys here: https://dashboard.stripe.com/account/apikeys
+var stripe = require("stripe")("sk_test_BQokikJOvBiI2HlWgH4olfQ2");
+
+// Token is created using Checkout or Elements!
+// Get the payment token ID submitted by the form:
+const token = request.body.stripeToken; // Using Express
+
+const charge = stripe.charges.create({
+amount: 999,
+currency: 'usd',
+description: 'Example charge',
+source: token,
+});
+
+Tokens can be only used once and everytime the user purchases something, he/she will have to re-enter the details.
+
+However, Stripe allows multiple payment solutions like saving the card details, payment through bank, refunds and much more. You may check out their documentation here for adding further functionalities to your payment mechanism.
+
+#3. Recommendation Engine
+
+The main aim of developing a recommendation engine is to facilitate each user with content based on unique interests of each visitor to boost user engagement and improve user conversion, lifetime value and retention.
+
+The recommendation engine will use the following data:
+
+Actions: This will include user clicks, visited products and products categories. This will help in constructing an accurate model and make better content recommendation.
+Behaviours: This will include users’ past preferences and information from which predictive models will learn more about their preferences.
+Demographic Information: This will include user specific information such as gender, age, etc. which will help in prediction as users with similar background tends to have similar choices.
+The recommendation engine uses AWS Lambda for processing users’ actions as mentioned above. It extracts events from multiple sources. As soon as the event occurs, it triggers a specific Lambda function attached to it which process the event further.
+
+Once the event is processed, it checks for users’ history in DynamoDB which is used to store aggregated data of clicks by user, product and preferences as well as user profile information.
+
+If the users’ history exists, machine learning through predictive analysis, determines the content affinity scores and passes the information to Kinesis Stream.
+
+* Content affinity scores are used with the personalised logic to determine the most relevant content to present to the user.
+
+ElastiCache is used to store pre-computed cold-start content affinity scores. This stores the logic for the users who have no history, means they are visiting for the first time. While Machine Learning helps us in easily designing, test, operationalize and manage predictive analysis solutions due to its API driven architecture.
+
+Once the events are processed, they are fed to Kinesis Stream which aggregates clicks in near real-time by user, product choices, preferences and demographic information t
